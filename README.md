@@ -109,6 +109,21 @@ Agent Babies aren't just running a raw model — they come with trained skills a
 
 The name comes from Muppet Babies — the 80s cartoon where baby versions of the Muppets went on adventures that were smaller-scale but still meaningful. Same energy here.
 
+## Remote models
+
+Got a Mac Studio with 128GB? Run the model there, chat from your laptop:
+
+```bash
+# On your Mac Studio — start the model server
+agent-baby server
+
+# On your MacBook Air — point at the Studio
+export AGENT_BABIES_LLM_URL=http://mac-studio.local:8090/v1
+agent-baby chat
+```
+
+Voice works too — VoiceMode runs locally on whatever machine you're chatting from, while the model runs on the remote Mac.
+
 ## FAQ
 
 **Q: How is this different from Ollama?**
