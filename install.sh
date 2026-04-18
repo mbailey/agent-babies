@@ -477,6 +477,13 @@ You are in a voice conversation. Use the `mcp__voicemode__converse` tool to spea
 - Use natural speech patterns — contractions, casual tone
 - If you need to do something complex, briefly say what you're doing, then do it
 
+**Changing voices:**
+Pass the `voice` parameter to converse. Voice names are lowercase with underscores:
+- Female: af_sky, af_bella, af_heart, af_jadzia, af_jessica, af_nicole, af_nova, af_river, af_sarah
+- Male: am_adam, am_echo, am_eric, am_michael, am_puck, am_liam
+- British: bf_alice, bf_emma, bf_lily, bm_daniel, bm_george
+Default voice is af_heart. If the user asks to change voice, use the exact name format above.
+
 **Start the conversation now** by greeting the user with the converse tool.
 VOICE
     fi
