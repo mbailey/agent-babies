@@ -314,10 +314,29 @@ EOF
 }
 
 ensure_server() {
-    if ! curl -sf http://localhost:$MLX_PORT/v1/models &>/dev/null; then
-        echo -e "${YELLOW}⚠${NC} MLX server not running. Starting..."
-        server_start
+    # Check if server is already responding
+    if curl -sf --max-time 2 http://localhost:$MLX_PORT/v1/models &>/dev/null; then
+        echo -e "${GREEN}✓${NC} MLX server already running on port $MLX_PORT"
+        return 0
     fi
+
+    # Check if port is in use (another server binding)
+    if lsof -i :$MLX_PORT &>/dev/null; then
+        echo -e "${YELLOW}⚠${NC} Port $MLX_PORT is in use but not responding. Waiting..."
+        for _ in {1..15}; do
+            if curl -sf --max-time 2 http://localhost:$MLX_PORT/v1/models &>/dev/null; then
+                echo -e "${GREEN}✓${NC} MLX server ready on port $MLX_PORT"
+                return 0
+            fi
+            sleep 2
+        done
+        echo -e "${RED}✗${NC} Server on port $MLX_PORT not responding. Kill existing process or use a different port."
+        return 1
+    fi
+
+    # Port is free — start our own server
+    echo -e "${YELLOW}⚠${NC} MLX server not running. Starting..."
+    server_start
 }
 
 server_start() {
@@ -328,7 +347,7 @@ server_start() {
         --port $MLX_PORT &
 
     for _ in {1..30}; do
-        if curl -sf http://localhost:$MLX_PORT/v1/models &>/dev/null; then
+        if curl -sf --max-time 2 http://localhost:$MLX_PORT/v1/models &>/dev/null; then
             echo -e "${GREEN}✓${NC} Server ready on port $MLX_PORT"
             return 0
         fi
