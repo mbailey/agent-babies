@@ -399,10 +399,40 @@ cmd_talk() {
         exit 1
     fi
 
+    ensure_server
+
+    # Create voice-aware system prompt if not already present
+    local voice_prompt="$baby_dir/voice-prompt.md"
+    if [[ ! -f "$voice_prompt" ]]; then
+        cat "$baby_dir/system-prompt.md" > "$voice_prompt"
+        cat >> "$voice_prompt" <<'VOICE'
+
+## Voice Mode
+
+You are in a voice conversation. Use the `mcp__voicemode__converse` tool to speak.
+
+**How voice works:**
+1. Call `mcp__voicemode__converse` with your message and `wait_for_response: true`
+2. The tool speaks your message aloud, then listens for the user's reply
+3. The user's spoken words come back as the tool result
+4. Continue the conversation by calling the tool again
+
+**Voice style:**
+- Keep responses short and conversational (1-3 sentences)
+- Don't read out code, file paths, or technical details unless asked
+- Use natural speech patterns — contractions, casual tone
+- If you need to do something complex, briefly say what you're doing, then do it
+
+**Start the conversation now** by greeting the user with the converse tool.
+VOICE
+    fi
+
     echo -e "${BOLD}Voice chat with $name${NC} (Ctrl+C to exit)"
     echo ""
-    echo "Voice chat integration coming soon."
-    echo "For now, use: agent-baby chat $name"
+
+    cd "$baby_dir" && pi --provider local \
+       --model "$MODEL" \
+       --system-prompt "$voice_prompt"
 }
 
 case "${1:-help}" in
