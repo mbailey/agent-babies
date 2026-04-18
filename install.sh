@@ -382,10 +382,9 @@ cmd_chat() {
     echo -e "${BOLD}Chatting with $name${NC} (Ctrl+C to exit)"
     echo ""
 
-    pi --provider local \
+    cd "$baby_dir" && pi --provider local \
        --model "$MODEL" \
-       --system-prompt "$baby_dir/system-prompt.md" \
-       --working-dir "$baby_dir"
+       --system-prompt "$baby_dir/system-prompt.md"
 }
 
 cmd_talk() {
