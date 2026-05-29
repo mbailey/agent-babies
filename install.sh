@@ -209,9 +209,12 @@ echo "$MODEL" > "$CONFIG_DIR/model"
 echo "$MODEL_LABEL" > "$CONFIG_DIR/model-label"
 echo "$RAM_GB" > "$CONFIG_DIR/ram-gb"
 
-# Configure Pi to talk to local MLX server
+# Configure Pi to talk to MLX server
 PI_DIR="$HOME/.pi/agent"
 mkdir -p "$PI_DIR"
+
+# Store LLM URL for the CLI to read at runtime
+echo "http://localhost:${MLX_PORT}/v1" > "$CONFIG_DIR/llm-url"
 
 cat > "$PI_DIR/models.json" <<JSON
 {
@@ -287,7 +290,12 @@ CONFIG_DIR="$AGENT_BABIES_HOME/config"
 PROMPTS_DIR="$AGENT_BABIES_HOME/prompts"
 BABY_PYTHON="$AGENT_BABIES_HOME/venv/bin/python3"
 MODEL=$(cat "$CONFIG_DIR/model" 2>/dev/null || echo "mlx-community/gemma-4-e2b-it-4bit")
-MLX_PORT=8090
+
+# LLM server — override to point at a remote Mac (e.g. AGENT_BABIES_LLM_URL=http://ms2.local:8090/v1)
+AGENT_BABIES_LLM_URL="${AGENT_BABIES_LLM_URL:-http://localhost:8090/v1}"
+MLX_PORT=$(echo "$AGENT_BABIES_LLM_URL" | sed -E 's|.*://[^:]+:([0-9]+).*|\1|')
+MLX_HOST=$(echo "$AGENT_BABIES_LLM_URL" | sed -E 's|.*://([^:/]+).*|\1|')
+IS_REMOTE=$([[ "$MLX_HOST" != "localhost" && "$MLX_HOST" != "127.0.0.1" ]] && echo true || echo false)
 
 RED=$'\033[0;31m' GREEN=$'\033[0;32m' YELLOW=$'\033[1;33m'
 BLUE=$'\033[0;34m' BOLD=$'\033[1m' NC=$'\033[0m'
@@ -306,6 +314,11 @@ Usage:
   agent-baby server-status    Check model server
   agent-baby install-voice    Install VoiceMode for voice chat
 
+Environment:
+  AGENT_BABIES_LLM_URL        LLM server URL (default: http://localhost:8090/v1)
+                              Set to a remote Mac for faster models:
+                              export AGENT_BABIES_LLM_URL=http://ms2.local:8090/v1
+
 Examples:
   agent-baby spawn            # Create default baby
   agent-baby chat             # Chat with default baby
@@ -314,17 +327,26 @@ EOF
 }
 
 ensure_server() {
+    local server_url="http://${MLX_HOST}:${MLX_PORT}/v1/models"
+
     # Check if server is already responding
-    if curl -sf --max-time 2 http://localhost:$MLX_PORT/v1/models &>/dev/null; then
-        echo -e "${GREEN}✓${NC} MLX server already running on port $MLX_PORT"
+    if curl -sf --max-time 2 "$server_url" &>/dev/null; then
+        echo -e "${GREEN}✓${NC} MLX server running at ${MLX_HOST}:${MLX_PORT}"
         return 0
+    fi
+
+    # Remote server — can't start it ourselves
+    if [[ "$IS_REMOTE" == "true" ]]; then
+        echo -e "${RED}✗${NC} Remote MLX server at ${MLX_HOST}:${MLX_PORT} not responding."
+        echo -e "${BLUE}▸${NC} Start it on the remote machine: agent-baby server"
+        return 1
     fi
 
     # Check if port is in use (another server binding)
     if lsof -i :$MLX_PORT &>/dev/null; then
         echo -e "${YELLOW}⚠${NC} Port $MLX_PORT is in use but not responding. Waiting..."
         for _ in {1..15}; do
-            if curl -sf --max-time 2 http://localhost:$MLX_PORT/v1/models &>/dev/null; then
+            if curl -sf --max-time 2 "$server_url" &>/dev/null; then
                 echo -e "${GREEN}✓${NC} MLX server ready on port $MLX_PORT"
                 return 0
             fi
@@ -357,6 +379,36 @@ server_start() {
     return 1
 }
 
+configure_pi() {
+    # Write Pi models.json with the current LLM URL (supports remote servers via env var)
+    local pi_dir="$HOME/.pi/agent"
+    mkdir -p "$pi_dir"
+    cat > "$pi_dir/models.json" <<JSON
+{
+  "providers": {
+    "local": {
+      "baseUrl": "$AGENT_BABIES_LLM_URL",
+      "api": "openai-completions",
+      "apiKey": "none",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "maxTokensField": "max_tokens"
+      },
+      "models": [
+        {
+          "id": "$MODEL",
+          "name": "$(cat "$CONFIG_DIR/model-label" 2>/dev/null || echo "$MODEL")",
+          "contextWindow": 32768,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  }
+}
+JSON
+}
+
 cmd_spawn() {
     local name="${1:-baby}"
     ensure_server
@@ -378,6 +430,7 @@ cmd_chat() {
 
     [[ -d "$baby_dir" ]] || cmd_spawn "$name"
     ensure_server
+    configure_pi
 
     echo -e "${BOLD}Chatting with $name${NC} (Ctrl+C to exit)"
     echo ""
@@ -399,10 +452,48 @@ cmd_talk() {
         exit 1
     fi
 
+    ensure_server
+    configure_pi
+
+    # Create voice-aware system prompt if not already present
+    local voice_prompt="$baby_dir/voice-prompt.md"
+    if [[ ! -f "$voice_prompt" ]]; then
+        cat "$baby_dir/system-prompt.md" > "$voice_prompt"
+        cat >> "$voice_prompt" <<'VOICE'
+
+## Voice Mode
+
+You are in a voice conversation. Use the `mcp__voicemode__converse` tool to speak.
+
+**How voice works:**
+1. Call `mcp__voicemode__converse` with your message and `wait_for_response: true`
+2. The tool speaks your message aloud, then listens for the user's reply
+3. The user's spoken words come back as the tool result
+4. Continue the conversation by calling the tool again
+
+**Voice style:**
+- Keep responses short and conversational (1-3 sentences)
+- Don't read out code, file paths, or technical details unless asked
+- Use natural speech patterns — contractions, casual tone
+- If you need to do something complex, briefly say what you're doing, then do it
+
+**Changing voices:**
+Pass the `voice` parameter to converse. Voice names are lowercase with underscores:
+- Female: af_sky, af_bella, af_heart, af_jadzia, af_jessica, af_nicole, af_nova, af_river, af_sarah
+- Male: am_adam, am_echo, am_eric, am_michael, am_puck, am_liam
+- British: bf_alice, bf_emma, bf_lily, bm_daniel, bm_george
+Default voice is af_heart. If the user asks to change voice, use the exact name format above.
+
+**Start the conversation now** by greeting the user with the converse tool.
+VOICE
+    fi
+
     echo -e "${BOLD}Voice chat with $name${NC} (Ctrl+C to exit)"
     echo ""
-    echo "Voice chat integration coming soon."
-    echo "For now, use: agent-baby chat $name"
+
+    cd "$baby_dir" && pi --provider local \
+       --model "$MODEL" \
+       --system-prompt "$voice_prompt"
 }
 
 case "${1:-help}" in
@@ -413,10 +504,10 @@ case "${1:-help}" in
     stop)           echo "Stop not yet implemented." ;;
     server)         server_start ;;
     server-status)
-        if curl -sf http://localhost:$MLX_PORT/v1/models &>/dev/null; then
-            echo -e "${GREEN}✓${NC} MLX server running on port $MLX_PORT"
+        if curl -sf --max-time 2 "http://${MLX_HOST}:${MLX_PORT}/v1/models" &>/dev/null; then
+            echo -e "${GREEN}✓${NC} MLX server running at ${MLX_HOST}:${MLX_PORT}"
         else
-            echo -e "${RED}✗${NC} MLX server not running"
+            echo -e "${RED}✗${NC} MLX server not responding at ${MLX_HOST}:${MLX_PORT}"
         fi
         ;;
     install-voice)

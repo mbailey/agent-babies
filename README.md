@@ -67,21 +67,22 @@ agent-baby talk
 ## How it works
 
 ```
-┌─────────────────────────────────────────────┐
-│              Your Mac                        │
-│                                              │
-│  ┌──────────┐    ┌──────────┐    ┌────────┐ │
-│  │ agent-   │───>│ Pi agent │───>│ MLX    │ │
-│  │ baby CLI │    │ (tools)  │    │ server │ │
-│  └──────────┘    └──────────┘    └────────┘ │
-│       │                              │       │
-│  ┌────┴─────┐                  ┌─────┴────┐ │
-│  │ VoiceMode│                  │ Open-src  │ │
-│  │ (voice)  │                  │ model     │ │
-│  └──────────┘                  └──────────┘ │
-│                                              │
-│  Everything runs here. Nothing leaves.       │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│              Your Mac                             │
+│                                                   │
+│  ┌──────────┐    ┌──────────┐    ┌─────────────┐ │
+│  │ agent-   │───>│ Pi agent │───>│ MLX server  │ │
+│  │ baby CLI │    │ (tools)  │    │ (open model)│ │
+│  └──────────┘    └────┬─────┘    └─────────────┘ │
+│                       │ MCP bridge                │
+│                  ┌────┴─────┐                     │
+│                  │VoiceMode │                     │
+│                  │ Whisper  │ (speech-to-text)    │
+│                  │ Kokoro   │ (text-to-speech)    │
+│                  └──────────┘                     │
+│                                                   │
+│  Everything runs here. Nothing leaves.            │
+└──────────────────────────────────────────────────┘
 ```
 
 **Stack:**
@@ -107,6 +108,21 @@ It's _not_ great at complex reasoning, multi-step planning, or tasks requiring d
 Agent Babies aren't just running a raw model — they come with trained skills and system prompts that make them more useful out of the box. The training lives in the [`minions`](https://github.com/ai-cora/minions) repo, where we iteratively improve prompts and measure quality.
 
 The name comes from Muppet Babies — the 80s cartoon where baby versions of the Muppets went on adventures that were smaller-scale but still meaningful. Same energy here.
+
+## Remote models
+
+Got a Mac Studio with 128GB? Run the model there, chat from your laptop:
+
+```bash
+# On your Mac Studio — start the model server
+agent-baby server
+
+# On your MacBook Air — point at the Studio
+export AGENT_BABIES_LLM_URL=http://mac-studio.local:8090/v1
+agent-baby chat
+```
+
+Voice works too — VoiceMode runs locally on whatever machine you're chatting from, while the model runs on the remote Mac.
 
 ## FAQ
 
